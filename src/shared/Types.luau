@@ -32,4 +32,28 @@ export type ReplicateAction = {
 	rotation: number?,
 }
 
+-- FEM / Structure types
+export type FailureMode = "none" | "yield" | "rupture" | "buckling"
+
+export type Element = {
+	a: number,
+	b: number,
+	E: number,
+	A: number,
+	Iy: number?,
+	yield: number?,
+	ultimate: number?,
+	K: number?,
+}
+
+export type ElementResult = {
+	index: number,
+	length: number,
+	axial: number,
+	stress: number,
+	utilization: number,
+	failureMode: FailureMode,
+	broken: boolean,
+}
+
 return {}
