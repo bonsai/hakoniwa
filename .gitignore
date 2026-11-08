@@ -1,0 +1,36 @@
+# Roblox / Rojo
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+*.rbxm
+*.rbxmx
+!assets/**/*.rbxmx
+
+# Build output
+build/
+out/
+dist/
+
+# Generated catalog (keep source-of-truth in tools; uncomment to ignore)
+# src/shared/Catalog.luau
+
+# Python (tools/)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local data / secrets
+data/
+*.local.json
+.env
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
