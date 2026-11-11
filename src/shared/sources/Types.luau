@@ -13,6 +13,10 @@ export type World = {
 	highlight: (target: any, level: string) -> (),
 	setWeather: (weather: any) -> (),
 	log: (msg: string) -> (),
+	-- 破壊・応力反映の契約案（実装は可視化 Issue 側）:
+	-- setStress: ((elementIndex: number, utilization: number, mode: string) -> ())?,
+	-- markBroken: ((elementIndex: number, mode: string) -> ())?,
+	-- getPlacedParts: (() -> { any })?,
 }
 
 export type Context = {
