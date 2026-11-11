@@ -39,7 +39,15 @@ export type ElementResult = {
 	stress: number,     -- 応力 = axial / A
 }
 
+export type Reaction = {
+	x: number,
+	y: number,
+}
+
 export type Result = {
+	ok: boolean,
+	message: string?,
+	reactions: { Reaction },
 	ux: { number },     -- 節点変位
 	uy: { number },
 	elements: { ElementResult },
@@ -51,7 +59,7 @@ local EPS = 1e-9
 
 -- --- 線形代数（密行列・行優先のフラット配列） --------------------------------
 
-local function gaussSolve(K: { number }, f: { number }, n: number): { number }
+local function gaussSolve(K: { number }, f: { number }, n: number, tol: number): ({ number }?, string?)
 	-- K: n*n (row-major), f: n  →  x: n（部分ピボット付きガウス消去）
 	local A = table.clone(K)
 	local b = table.clone(f)
@@ -67,8 +75,8 @@ local function gaussSolve(K: { number }, f: { number }, n: number): { number }
 				piv = r
 			end
 		end
-		if best < EPS then
-			continue -- 特異に近い列はスキップ（拘束で消えている想定）
+		if best < tol then
+			return nil, "singular stiffness matrix (unstable truss or insufficient supports)"
 		end
 		if piv ~= col then
 			for c = 1, n do
@@ -97,9 +105,12 @@ local function gaussSolve(K: { number }, f: { number }, n: number): { number }
 			s -= A[(r - 1) * n + c] * x[c]
 		end
 		local diag = A[(r - 1) * n + r]
-		x[r] = if math.abs(diag) > EPS then s / diag else 0
+		if math.abs(diag) < tol then
+			return nil, "singular stiffness matrix (unstable truss or insufficient supports)"
+		end
+		x[r] = s / diag
 	end
-	return x
+	return x, nil
 end
 
 -- --- ソルバ -----------------------------------------------------------------
@@ -122,7 +133,7 @@ function Fem.solve(model: Model): Result
 	end
 
 	local lengths = table.create(#elems, 0)
-	local dirs = table.create(#elems, { c = 0, s = 0 })
+	local dirs: { { c: number, s: number } } = {}
 
 	for ei, e in ipairs(elems) do
 		local na, nb = nodes[e.a], nodes[e.b]
@@ -185,7 +196,61 @@ function Fem.solve(model: Model): Result
 		end
 	end
 
-	local uf = if nf > 0 then gaussSolve(Kf, ff, nf) else table.create(0, 0)
+	local uf: { number } = table.create(0, 0)
+	if nf > 0 then
+		-- 行列スケール相対の特異閾値
+		local maxAbsDiag = 0
+		for r = 1, nf do
+			local d = math.abs(Kf[(r - 1) * nf + r])
+			if d > maxAbsDiag then
+				maxAbsDiag = d
+			end
+		end
+
+		local tol = 1e-9 * maxAbsDiag
+		if tol < EPS then
+			tol = EPS
+		end
+
+		-- 特異判定: 対角がほぼ 0 の場合
+		for r = 1, nf do
+			if math.abs(Kf[(r - 1) * nf + r]) < tol then
+				local emptyReactions: { Reaction } = {}
+				for _ = 1, nn do
+					table.insert(emptyReactions, { x = 0, y = 0 })
+				end
+				return {
+					ok = false,
+					message = "singular stiffness matrix (unstable truss or insufficient supports)",
+					reactions = emptyReactions,
+					ux = table.create(nn, 0),
+					uy = table.create(nn, 0),
+					elements = {},
+					maxAbsStress = 0,
+					maxAbsDisp = 0,
+				}
+			end
+		end
+
+		local sol, err = gaussSolve(Kf, ff, nf, tol)
+		if not sol then
+			local emptyReactions: { Reaction } = {}
+			for _ = 1, nn do
+				table.insert(emptyReactions, { x = 0, y = 0 })
+			end
+			return {
+				ok = false,
+				message = err or "singular stiffness matrix (unstable truss or insufficient supports)",
+				reactions = emptyReactions,
+				ux = table.create(nn, 0),
+				uy = table.create(nn, 0),
+				elements = {},
+				maxAbsStress = 0,
+				maxAbsDisp = 0,
+			}
+		end
+		uf = sol
+	end
 
 	-- 全体変位へ戻す
 	local ux = table.create(nn, 0)
@@ -227,7 +292,31 @@ function Fem.solve(model: Model): Result
 		maxAbsDisp = math.max(maxAbsDisp, math.abs(ux[i]), math.abs(uy[i]))
 	end
 
+	-- 全体変位ベクトル u
+	local u = table.create(ndof, 0)
+	for i = 1, nn do
+		u[dofX(i)] = ux[i]
+		u[dofY(i)] = uy[i]
+	end
+
+	-- 反力 R = K u - f
+	local reactions: { Reaction } = {}
+	for i = 1, nn do
+		local gx = dofX(i)
+		local gy = dofY(i)
+		local rx = -f[gx]
+		local ry = -f[gy]
+		for c = 1, ndof do
+			rx += K[(gx - 1) * ndof + c] * u[c]
+			ry += K[(gy - 1) * ndof + c] * u[c]
+		end
+		table.insert(reactions, { x = rx, y = ry })
+	end
+
 	return {
+		ok = true,
+		message = nil,
+		reactions = reactions,
 		ux = ux,
 		uy = uy,
 		elements = results,
@@ -245,10 +334,10 @@ function Fem.stressToColor(stress: number, maxAbs: number): Color3
 	local t = math.clamp(stress / maxAbs, -1, 1)
 	if t >= 0 then
 		-- 引張: 白 → 青
-		return Color3.new(1 - t, 1 - t, 1).Lerp(Color3.new(0.2, 0.4, 1), t)
+		return Color3.new(1 - t, 1 - t, 1):Lerp(Color3.new(0.2, 0.4, 1), t)
 	else
 		-- 圧縮: 白 → 赤
-		return Color3.new(1, 1 + t, 1 + t).Lerp(Color3.new(1, 0.25, 0.2), -t)
+		return Color3.new(1, 1 + t, 1 + t):Lerp(Color3.new(1, 0.25, 0.2), -t)
 	end
 end
 
