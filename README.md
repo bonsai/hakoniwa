@@ -89,7 +89,13 @@ python hakoniwa/tools/build_catalog.py path/to/plan.dxf \
 # 3. Rojo で Studio に同期
 rojo serve hakoniwa/default.project.json
 #   → Studio の Rojo プラグインで Connect
+
+# 4. 単体テスト実行（Lune）
+cargo install lune --version 0.11.1 --locked
+lune run tests/run.luau
 ```
+
+テストの詳細は [tests/README.md](tests/README.md) を参照。
 
 MCP 経由の描画は別リポジトリ dxf-llm の `recipes/jww2luau/mcp-studio.md` を参照。
 境界（契約）は [BOUNDARY.md](BOUNDARY.md)。
