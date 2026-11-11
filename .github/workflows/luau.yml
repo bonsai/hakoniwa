@@ -1,0 +1,28 @@
+name: Luau Tests
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  test:
+    name: Run FEM Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Lune
+        env:
+          LUNE_VERSION: "0.11.1"
+        run: |
+          curl -sSL "https://github.com/lune-org/lune/releases/download/v${LUNE_VERSION}/lune-${LUNE_VERSION}-linux-x86_64.zip" -o /tmp/lune.zip
+          sudo unzip -o /tmp/lune.zip -d /usr/local/bin
+          sudo chmod +x /usr/local/bin/lune
+          rm -f /tmp/lune.zip
+          lune --version
+
+      - name: Run FEM tests
+        run: lune run tests/run.luau
