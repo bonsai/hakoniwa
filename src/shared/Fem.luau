@@ -20,11 +20,17 @@ export type Node = {
 	loadY: number?,
 }
 
+export type FailureMode = "none" | "yield" | "rupture" | "buckling"
+
 export type Element = {
 	a: number,          -- 節点 index
 	b: number,          -- 節点 index
 	E: number,          -- ヤング係数（相対）
 	A: number,          -- 断面積（相対）
+	Iy: number?,        -- 断面二次モーメント（座屈用。未指定なら A から円形近似 A^2 / (4π)）
+	yield: number?,     -- 降伏応力（既定 1.0）
+	ultimate: number?,  -- 破断応力（既定 1.5）
+	K: number?,         -- 座屈有効長係数（既定 1.0）
 }
 
 export type Model = {
@@ -35,8 +41,11 @@ export type Model = {
 export type ElementResult = {
 	index: number,
 	length: number,
-	axial: number,      -- 軸力（+ 引張 / - 圧縮）
-	stress: number,     -- 応力 = axial / A
+	axial: number,              -- 軸力（+ 引張 / - 圧縮）
+	stress: number,             -- 応力 = axial / A
+	utilization: number,        -- 使用率（0..∞。1.0 で限界）
+	failureMode: FailureMode,   -- "none" | "yield" | "rupture" | "buckling"
+	broken: boolean,            -- 破壊フラグ
 }
 
 export type Reaction = {
@@ -281,11 +290,65 @@ function Fem.solve(model: Model): Result
 		if math.abs(stress) > maxAbsStress then
 			maxAbsStress = math.abs(stress)
 		end
+
+		-- 材料・断面パラメータ（既定値補完）
+		local yieldStress = e.yield or 1.0
+		local ultimateStress = e.ultimate or 1.5
+		local K = e.K or 1.0
+		local Iy = e.Iy or ((e.A * e.A) / (4 * math.pi))
+
+		local failureMode: FailureMode = "none"
+		local broken = false
+		local utilization = 0
+
+		if axial >= 0 then
+			-- 引張
+			local absStress = stress
+			local utilYield = if yieldStress > EPS then absStress / yieldStress else 0
+			local utilRupture = if ultimateStress > EPS then absStress / ultimateStress else 0
+			utilization = math.max(utilYield, utilRupture)
+
+			if absStress >= ultimateStress then
+				failureMode = "rupture"
+				broken = true
+			elseif absStress >= yieldStress then
+				failureMode = "yield"
+				broken = false
+			else
+				failureMode = "none"
+				broken = false
+			end
+		else
+			-- 圧縮
+			local absStress = math.abs(stress)
+			local absAxial = math.abs(axial)
+			local effLen = K * L
+			local Pcr = if effLen > EPS then (math.pi * math.pi * e.E * Iy) / (effLen * effLen) else math.huge
+
+			local utilBuckling = if Pcr > EPS then absAxial / Pcr else 0
+			local utilYield = if yieldStress > EPS then absStress / yieldStress else 0
+			utilization = math.max(utilBuckling, utilYield)
+
+			if absAxial >= Pcr then
+				failureMode = "buckling"
+				broken = true
+			elseif absStress >= yieldStress then
+				failureMode = "yield"
+				broken = false
+			else
+				failureMode = "none"
+				broken = false
+			end
+		end
+
 		table.insert(results, {
 			index = ei,
 			length = L,
 			axial = axial,
 			stress = stress,
+			utilization = utilization,
+			failureMode = failureMode,
+			broken = broken,
 		})
 	end
 	for i = 1, nn do

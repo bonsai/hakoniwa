@@ -64,6 +64,7 @@ function Source.apply(world: Types.World, data: any): ()
 		world.log("構造: ノードなし（スキップ）")
 		return
 	end
+<<<<<<< HEAD
 
 	-- 3. FEM 解析の実行（ソルバ堅牢化/例外防止）
 	local solveOk, result = pcall(Fem.solve, model)
@@ -126,9 +127,32 @@ function Source.apply(world: Types.World, data: any): ()
 
 		if (world :: any).setStress and type((world :: any).setStress) == "function" then
 			pcall((world :: any).setStress, idx, util, mode or "normal")
+=======
+	local result = Fem.solve({ nodes = data.nodes, elements = data.elements })
+
+	-- 破壊判定集計（引張: rupture / 圧縮: buckling。yield は使用率 >= 1.0 だが broken ではない）
+	local brokenCount = 0
+	local breakdown: { [Types.FailureMode]: number } = {
+		none = 0,
+		yield = 0,
+		rupture = 0,
+		buckling = 0,
+	}
+
+	for _, e in ipairs(result.elements) do
+		if e.broken then
+			brokenCount += 1
+>>>>>>> f03fc59 (feat(fem): implement tensile and compressive failure modes)
 		end
+		breakdown[e.failureMode] = (breakdown[e.failureMode] or 0) + 1
+
+		-- [契約案] 破壊要素を World へ通知する将来のインターフェース:
+		-- if e.broken and world.markBroken then
+		--     world.markBroken(e.index, e.failureMode)
+		-- end
 	end
 
+<<<<<<< HEAD
 	local maxAbsStress = result.maxAbsStress or 0
 	local summary = ("構造: 最大応力 %.3f / 最大利用率 %.2f / 破壊 %d 要素"):format(
 		maxAbsStress,
@@ -136,6 +160,17 @@ function Source.apply(world: Types.World, data: any): ()
 		brokenCount
 	)
 	world.log(summary)
+=======
+	world.log(
+		("構造: 最大応力 %.3f / 破壊 %d 要素 (破断: %d, 座屈: %d, 降伏: %d)"):format(
+			result.maxAbsStress,
+			brokenCount,
+			breakdown.rupture,
+			breakdown.buckling,
+			breakdown.yield
+		)
+	)
+>>>>>>> f03fc59 (feat(fem): implement tensile and compressive failure modes)
 end
 
 return Source
